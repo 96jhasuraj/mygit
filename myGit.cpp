@@ -10,6 +10,8 @@ void print_intro()
     std::cout << "usage: git <command> [<args>]\n\n";
     std::cout << "These are commands supported for now:\n\n";
     std::cout << "   init       Create an empty Git repository or reinitialize an existing one\n";
+    std::cout << "   hash-string       sha1 of string entered\n";
+    std::cout << "   hash-object WIP\n";
 }
 void handle_user_input(int argc, char* argv[],Git git)  
 {  
@@ -20,6 +22,9 @@ void handle_user_input(int argc, char* argv[],Git git)
     
     if (command == "init") {
         git.init();
+    }
+    else if (command == "hash-string") {
+        std::cout<<git.calculate_sha1(argv[2])<<std::endl;
     }
     else {
         std::cout << "git: '" << command << "' is not a supported command. See 'git --help'.\n";

@@ -11,7 +11,6 @@ private:
     std::string index_file;
     std::string head_file;
     std::string config_file;
-    std::string calculate_sha1(const std::string& data);
     void create_init_directories();
     void write_file_message(std::string, std::string);
     void init_setup();
@@ -20,5 +19,6 @@ public:
     Git(const std::string& path = ".");
     void init();
     std::string hash_object(const std::string& data);
+    std::string calculate_sha1(const std::string& data);
 
 };
