@@ -15,6 +15,25 @@ Git::Git(const std::string& path)
 {
 }
 
+void Git::create_init_directories()
+{
+    fs::create_directories(git_dir);
+    fs::create_directories(objects_dir);
+    fs::create_directories(refs_dir + "/heads");
+    fs::create_directories(refs_dir + "/tags");
+}
+void Git::write_file_message(std::string file, std::string message)
+{
+    std::ofstream file_p(file);
+    file_p << message;
+    file_p.close();
+}
+void Git::init_setup()
+{
+    create_init_directories();
+    write_file_message(head_file, "ref: refs/heads/main\n");
+    write_file_message(config_file, "user_name: Default\n revisit read what all goes into the config file\n");
+}
 void Git::init()
 {
     try {
@@ -22,20 +41,7 @@ void Git::init()
             std::cout << "Reinitializing existing Git repository in " << git_dir << "\n";
             fs::remove_all(git_dir);
         }
-        fs::create_directories(git_dir);
-        fs::create_directories(objects_dir);
-        fs::create_directories(refs_dir + "/heads");
-        fs::create_directories(refs_dir + "/tags");
-
-        std::ofstream head(head_file);
-        head << "ref: refs/heads/main\n";
-        head.close();
-
-        std::ofstream config(config_file);
-        config << "user_name: Default\n";
-        config << "revisit read what all goes into the config file\n";
-        config.close();
-
+        init_setup();
         std::cout << "Initialized empty Git repository in " << git_dir << "/\n";
     }
     catch (const std::exception& e) {
