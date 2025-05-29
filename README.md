@@ -3,8 +3,8 @@ WIP
 implementation done till now 
 1. init
 2. hash-string
+3. hash-object <file>
+4. find-object <hash>
 
-
-implementation in progress
-1. hash-object <file>
-2. cat <hash>
+implementing next 
+1. cat
