@@ -13,4 +13,8 @@ implementing next
 3. diff
 4. status
 5. push stuff to github
-6. add 
+6. add
+7. refactor code
+8. add error handling
+9. singleton class + other patterns learn & see how to refactor accordingly
+10. 
