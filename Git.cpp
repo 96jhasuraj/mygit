@@ -21,6 +21,10 @@ Git::Git(const std::string& path)
 {
 }
 
+const std::string Git::get_object_dir()
+{
+	return objects_dir;
+}
 void Git::create_init_directories()
 {
     fs::create_directories(git_dir);
@@ -115,22 +119,49 @@ std::string Git::calculate_sha1(const std::string& data)
     return ss.str();
 }
 
+bool hash_checkup(const std::filesystem::path& path)
+{
+    if (std::filesystem::is_directory(path))
+    {
+        std::cout << "Use 'hash-tree' for folders.\n";
+        return false;
+    }
+
+    if (!std::filesystem::exists(path))
+    {
+        std::cout << "File not found.\n";
+        return false;
+    }
+    return true;
+}
+std::string get_file_content(const std::filesystem::path& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    std::string file_content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    file.close();
+    return file_content;
+}
 std::string Git::hash_object(const std::filesystem::path& path) 
 {
-    if (std::filesystem::is_directory(path)) 
+    if(!hash_checkup(path))
+        return "";
+    return hash_object(get_file_content(path), "blob");
+}
+void Git::compress_write(std::filesystem::path& path, const std::string full_data)
+{
+    if (!std::filesystem::exists(path))
     {
-        throw std::runtime_error("Use 'hash-tree' for folders.");
+        try
+        {
+            std::vector<unsigned char> compressed_content = Git::compress_data(full_data);
+            Git::write_file_binary(path, compressed_content);
+        }
+        catch (const std::runtime_error& e)
+        {
+            std::cerr << "Error storing object: " << e.what() << std::endl;
+            exit(1);
+        }
     }
-
-    if (!std::filesystem::exists(path)) 
-    {
-        throw std::runtime_error("File not found: " + path.string());
-    }
-
-    std::ifstream file(path, std::ios::binary);
-    std::string file_content((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
-    file.close();
-    return hash_object(file_content, "blob");
 }
 std::string Git::hash_object(const std::string& data, const std::string& obj_type) 
 {
@@ -138,38 +169,31 @@ std::string Git::hash_object(const std::string& data, const std::string& obj_typ
     header_ss << obj_type << " " << data.length() << '\0';
     std::string full_data = header_ss.str() + data;
     std::string sha1 = calculate_sha1(full_data);
-    std::filesystem::path object_path = objects_dir;
+    std::filesystem::path object_path = get_object_dir();
     object_path /= sha1.substr(0, 2); // First two chars for subdirectory
     object_path /= sha1.substr(2);   // Remaining chars for filename
-    if (!std::filesystem::exists(object_path)) 
-    {
-            try 
-            {
-                std::vector<unsigned char> compressed_content = compress_data(full_data);
-                write_file_binary(object_path, compressed_content);
-            }
-            catch (const std::runtime_error& e) 
-            {
-                std::cerr << "Error storing object: " << e.what() << std::endl;
-                exit(1);
-            }
-    }
+    compress_write(object_path,full_data);
     return sha1;
 }
 
-std::string Git::find_object(const std::string& sha1_prefix)
+void Git::find_object(const std::string& sha1_prefix)
 {
+    if(sha1_prefix.length()<2)
+    {
+        std::cout<<"sha1 prefix must be at least 2 characters long\n";
+        return;
+	}
 
-    std::filesystem::path obj_dir_path = objects_dir;
+    std::filesystem::path obj_dir_path = get_object_dir();
     obj_dir_path/=sha1_prefix.substr(0, 2);
     std::string rest_of_prefix = sha1_prefix.substr(2);
 
     std::vector<std::string> matching_objects;
 
     if (std::filesystem::exists(obj_dir_path) && std::filesystem::is_directory(obj_dir_path)) {
-        for (const auto& entry : std::filesystem::directory_iterator(obj_dir_path)) {
-            if (entry.is_regular_file()) {
-                std::string filename = entry.path().filename().string();
+        for (const auto& file : std::filesystem::directory_iterator(obj_dir_path)) {
+            if (file.is_regular_file()) {
+                std::string filename = file.path().filename().string();
                 if (filename.rfind(rest_of_prefix, 0) == 0) {
                     matching_objects.push_back(filename);
                 }
@@ -179,13 +203,15 @@ std::string Git::find_object(const std::string& sha1_prefix)
 
     if (matching_objects.empty()) 
     {
-        throw std::runtime_error("object '" + sha1_prefix + "' not found");
+        std::cout<<"object " << sha1_prefix << " not found";
     }
 
     if (matching_objects.size() >= 2) 
     {
 		std::cout << "multiple objects found with prefix '" << sha1_prefix << "':\n";
     }
-	// add logic to print all matching objects after testing
-    return sha1_prefix.substr(0, 2) + matching_objects[0];
+    for (const auto& obj : matching_objects) 
+    {
+        std::cout<<sha1_prefix.substr(0, 2) + obj<<std::endl;
+	}
 }
