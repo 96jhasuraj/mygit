@@ -32,24 +32,35 @@ void Git::create_init_directories()
     fs::create_directories(refs_dir + "/heads");
     fs::create_directories(refs_dir + "/tags");
 }
+std::vector<unsigned char> Git::read_file_binary_as_unsigned_char(const std::string& file_path) 
+{
+    std::ifstream file(file_path, std::ios::binary | std::ios::ate);
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::vector<unsigned char> buffer(size);
+    file.read(reinterpret_cast<char*>(buffer.data()), size);
+    return buffer;
+}
+std::string read_file_binary(const std::string& filepath) 
+{
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file.is_open()) return "";
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
 void Git::write_file_message(std::string file, std::string message)
 {
     std::ofstream file_p(file);
     file_p << message;
     file_p.close();
 }
-void Git::write_file_binary(const std::filesystem::path& path, const std::vector<unsigned char>& content) {
-    try 
-    {
-        std::filesystem::create_directories(path.parent_path());
-        std::ofstream out_file(path, std::ios::binary);
-        out_file.write(reinterpret_cast<const char*>(content.data()), content.size());
-        out_file.close();
-    }
-    catch (const std::filesystem::filesystem_error& e) 
-    {
-        throw std::runtime_error("write_file_binary: Filesystem error writing to " + path.string() + ": " + e.what());
-    }
+void Git::write_file_binary(const std::filesystem::path& path, const std::vector<unsigned char>& content) 
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream out_file(path, std::ios::binary);
+    out_file.write(reinterpret_cast<const char*>(content.data()), content.size());
+    out_file.close();
 }
 std::vector<unsigned char> Git::compress_data(const std::string& data) {
     std::vector<unsigned char> compressed_data;
@@ -83,6 +94,49 @@ std::vector<unsigned char> Git::compress_data(const std::string& data) {
     compressed_data.resize(buffer_size - zs.avail_out);
     deflateEnd(&zs);
     return compressed_data;
+}
+std::string Git::decompress_data(const std::vector<unsigned char>& compressed_data) {
+    z_stream zs;
+    zs.zalloc = Z_NULL;
+    zs.zfree = Z_NULL;
+    zs.opaque = Z_NULL;
+
+    if (inflateInit(&zs) != Z_OK)
+    {
+        throw std::runtime_error("Failed to initialize zlib inflate.");
+    }
+
+    zs.avail_in = compressed_data.size();
+    zs.next_in = reinterpret_cast<Bytef*>(const_cast<unsigned char*>(compressed_data.data()));
+
+    size_t chunk_size = 512;
+    std::string decompressed_str;
+    std::vector<unsigned char> out_buffer(chunk_size);
+
+    int ret;
+    do 
+    {
+        zs.avail_out = chunk_size;
+        zs.next_out = out_buffer.data();
+        ret = inflate(&zs, Z_NO_FLUSH);
+
+        if (ret == Z_NEED_DICT || ret == Z_DATA_ERROR || ret == Z_MEM_ERROR) 
+        {
+            inflateEnd(&zs);
+            throw std::runtime_error("Zlib decompression error: " + std::to_string(ret) + " msg: " + (zs.msg ? zs.msg : "no message"));
+        }
+
+        size_t bytes_written = chunk_size - zs.avail_out;
+        decompressed_str.append(reinterpret_cast<char*>(out_buffer.data()), bytes_written);
+    } while (ret != Z_STREAM_END && zs.avail_in > 0);
+
+    inflateEnd(&zs);
+
+    if (ret != Z_STREAM_END && zs.avail_in == 0) 
+    {
+        throw std::runtime_error("Zlib decompression: incomplete stream (no Z_STREAM_END)");
+    }
+    return decompressed_str;
 }
 void Git::init_setup()
 {
@@ -214,4 +268,53 @@ void Git::find_object(const std::string& sha1_prefix)
     {
         std::cout<<sha1_prefix.substr(0, 2) + obj<<std::endl;
 	}
+}
+
+std::tuple<std::string, std::string> Git::read_object(const std::string& hash) {
+    std::string dir_path = get_object_dir() + "/" + hash.substr(0, 2);
+    std::string file_path = dir_path + "/" + hash.substr(2);
+    std::vector<unsigned char> compressed_content = read_file_binary_as_unsigned_char(file_path);
+
+    std::string decompressed_content;
+    try {
+        decompressed_content = decompress_data(compressed_content);
+    }
+    catch (const std::runtime_error& e) 
+    {
+        std::cerr << "Error decompressing object " << hash << ": " << e.what() << std::endl;
+        return std::make_tuple("", ""); 
+    }
+    size_t null_pos = decompressed_content.find('\0');
+
+    if (null_pos == std::string::npos) 
+    {
+        std::cerr << "Error missing null terminator @hash " << hash << std::endl;
+        return std::make_tuple("", "");
+    }
+
+    std::string header = decompressed_content.substr(0, null_pos);
+    std::string data = decompressed_content.substr(null_pos + 1);
+
+    int space_pos = header.find(' ');
+    if (space_pos == std::string::npos) 
+    {
+        std::cerr << "Error incorrect Git object header for hash " << hash << std::endl;
+        return std::make_tuple("", "");
+    }
+    std::string type = header.substr(0, space_pos);
+
+    return std::make_tuple(type, data);
+}
+
+void Git::cat_file(const std::string& sha1_prefix) 
+{
+    std::string obj_type;
+    std::string data;
+    std::tie(obj_type, data) = read_object(sha1_prefix); 
+    std::cout << obj_type << data << "\n";
+    if (obj_type == "blob")
+    {
+        std::cout << "Object type: " << obj_type << "\n";
+        std::cout << "Content:\n" << data << "\n";
+    }
 }
