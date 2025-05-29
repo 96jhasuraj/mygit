@@ -6,7 +6,7 @@
 #include <iomanip> 
 #include <sstream> 
 #include <string> 
-
+#include<zlib.h>
 
 namespace fs = std::filesystem;
 
@@ -34,6 +34,52 @@ void Git::write_file_message(std::string file, std::string message)
     file_p << message;
     file_p.close();
 }
+void Git::write_file_binary(const std::filesystem::path& path, const std::vector<unsigned char>& content) {
+    try 
+    {
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream out_file(path, std::ios::binary);
+        out_file.write(reinterpret_cast<const char*>(content.data()), content.size());
+        out_file.close();
+    }
+    catch (const std::filesystem::filesystem_error& e) 
+    {
+        throw std::runtime_error("write_file_binary: Filesystem error writing to " + path.string() + ": " + e.what());
+    }
+}
+std::vector<unsigned char> Git::compress_data(const std::string& data) {
+    std::vector<unsigned char> compressed_data;
+    z_stream zs;
+    zs.zalloc = Z_NULL;
+    zs.zfree = Z_NULL;
+    zs.opaque = Z_NULL;
+
+    if (deflateInit(&zs, Z_DEFAULT_COMPRESSION) != Z_OK) 
+    {
+        throw std::runtime_error("Failed to initialize zlib deflate.");
+    }
+    zs.avail_in = data.size();
+    zs.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data.data()));
+    size_t buffer_size = deflateBound(&zs, (uLong)data.size());
+    compressed_data.resize(buffer_size);
+    zs.avail_out = buffer_size;
+    zs.next_out = compressed_data.data();
+
+    int ret = deflate(&zs, Z_FINISH);
+    if (ret != Z_STREAM_END) 
+    { 
+        deflateEnd(&zs);
+        if (ret == Z_OK) 
+        { 
+            throw std::runtime_error("Zlib compression buffer too small or incomplete.");
+        }
+        throw std::runtime_error("Zlib compression failed with error code: " + std::to_string(ret));
+    }
+
+    compressed_data.resize(buffer_size - zs.avail_out);
+    deflateEnd(&zs);
+    return compressed_data;
+}
 void Git::init_setup()
 {
     create_init_directories();
@@ -42,15 +88,18 @@ void Git::init_setup()
 }
 void Git::init()
 {
-    try {
-        if (fs::exists(git_dir)) {
+    try 
+    {
+        if (fs::exists(git_dir)) 
+        {
             std::cout << "Reinitializing existing Git repository in " << git_dir << "\n";
             fs::remove_all(git_dir);
         }
         init_setup();
         std::cout << "Initialized empty Git repository in " << git_dir << "/\n";
     }
-    catch (const std::exception& e) {
+    catch (const std::exception& e) 
+    {
         std::cout << "Error: " << e.what() << "\n";
     }
 }
@@ -66,27 +115,77 @@ std::string Git::calculate_sha1(const std::string& data)
     return ss.str();
 }
 
-std::string Git::hash_object(const std::string& data)
+std::string Git::hash_object(const std::filesystem::path& path) 
 {
-    std::string oid = calculate_sha1(data); 
-    std::filesystem::path objects_path = objects_dir;
-    objects_path /= oid;
-
-    try {
-        std::ofstream out_file(objects_path, std::ios::binary);
-        if (!out_file.is_open()) 
-        {
-            std::cerr << "Error: Could not open object file for writing: " << objects_path << std::endl;
-            exit(1);
-        }
-        out_file.write(data.data(), data.length());
-        out_file.close();
-    }
-    catch (const std::filesystem::filesystem_error& e) 
+    if (std::filesystem::is_directory(path)) 
     {
-        std::cerr << "Error writing object: " << e.what() << std::endl;
-        exit(1);
+        throw std::runtime_error("Use 'hash-tree' for folders.");
     }
 
-    return oid;
+    if (!std::filesystem::exists(path)) 
+    {
+        throw std::runtime_error("File not found: " + path.string());
+    }
+
+    std::ifstream file(path, std::ios::binary);
+    std::string file_content((std::istreambuf_iterator<char>(file)),std::istreambuf_iterator<char>());
+    file.close();
+    return hash_object(file_content, "blob");
+}
+std::string Git::hash_object(const std::string& data, const std::string& obj_type) 
+{
+    std::stringstream header_ss;
+    header_ss << obj_type << " " << data.length() << '\0';
+    std::string full_data = header_ss.str() + data;
+    std::string sha1 = calculate_sha1(full_data);
+    std::filesystem::path object_path = objects_dir;
+    object_path /= sha1.substr(0, 2); // First two chars for subdirectory
+    object_path /= sha1.substr(2);   // Remaining chars for filename
+    if (!std::filesystem::exists(object_path)) 
+    {
+            try 
+            {
+                std::vector<unsigned char> compressed_content = compress_data(full_data);
+                write_file_binary(object_path, compressed_content);
+            }
+            catch (const std::runtime_error& e) 
+            {
+                std::cerr << "Error storing object: " << e.what() << std::endl;
+                exit(1);
+            }
+    }
+    return sha1;
+}
+
+std::string Git::find_object(const std::string& sha1_prefix)
+{
+
+    std::filesystem::path obj_dir_path = objects_dir;
+    obj_dir_path/=sha1_prefix.substr(0, 2);
+    std::string rest_of_prefix = sha1_prefix.substr(2);
+
+    std::vector<std::string> matching_objects;
+
+    if (std::filesystem::exists(obj_dir_path) && std::filesystem::is_directory(obj_dir_path)) {
+        for (const auto& entry : std::filesystem::directory_iterator(obj_dir_path)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                if (filename.rfind(rest_of_prefix, 0) == 0) {
+                    matching_objects.push_back(filename);
+                }
+            }
+        }
+    }
+
+    if (matching_objects.empty()) 
+    {
+        throw std::runtime_error("object '" + sha1_prefix + "' not found");
+    }
+
+    if (matching_objects.size() >= 2) 
+    {
+		std::cout << "multiple objects found with prefix '" << sha1_prefix << "':\n";
+    }
+	// add logic to print all matching objects after testing
+    return sha1_prefix.substr(0, 2) + matching_objects[0];
 }

@@ -1,6 +1,9 @@
 #pragma once
 #include<string>
 #include<iostream>
+#include<filesystem>
+#include<vector>    
+
 class Git
 {
 private:
@@ -14,11 +17,13 @@ private:
     void create_init_directories();
     void write_file_message(std::string, std::string);
     void init_setup();
-
+    void write_file_binary(const std::filesystem::path& , const std::vector<unsigned char>& );
+    std::vector<unsigned char> compress_data(const std::string& data);
+    std::string hash_object(const std::string& data, const std::string& obj_type);
 public:
     Git(const std::string& path = ".");
     void init();
-    std::string hash_object(const std::string& data);
+    std::string hash_object(const std::filesystem::path& path);
     std::string calculate_sha1(const std::string& data);
-
+    std::string find_object(const std::string& sha1_prefix);
 };

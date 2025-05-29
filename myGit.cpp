@@ -23,8 +23,14 @@ void handle_user_input(int argc, char* argv[],Git git)
     if (command == "init") {
         git.init();
     }
-    else if (command == "hash-string") {
+    else if (command == "hash-string" and argc==3) {
         std::cout<<git.calculate_sha1(argv[2])<<std::endl;
+    }
+    else if (command == "find-object" and argc == 3) {
+        std::cout << git.find_object(argv[2]) << std::endl;
+    }
+    else if (command == "hash-object" and argc == 3) {
+        std::cout << git.hash_object(argv[2]) << std::endl;
     }
     else {
         std::cout << "git: '" << command << "' is not a supported command. See 'git --help'.\n";
