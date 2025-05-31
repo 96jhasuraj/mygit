@@ -7,7 +7,7 @@
 #include <sstream> 
 #include <string> 
 #include<zlib.h>
-
+#include <sys/stat.h>
 namespace fs = std::filesystem;
 
 Git::Git(const std::string& path)
@@ -25,12 +25,21 @@ const std::string Git::get_object_dir()
 {
 	return objects_dir;
 }
+const std::string Git::get_index_file()
+{
+    return index_file;
+}
 void Git::create_init_directories()
 {
     fs::create_directories(git_dir);
     fs::create_directories(objects_dir);
     fs::create_directories(refs_dir + "/heads");
-    fs::create_directories(refs_dir + "/tags");
+    std::ofstream index_ofs(index_file, std::ios::binary); 
+    if (index_ofs.is_open()) 
+    {
+        index_ofs.close(); // Just create an empty file
+    }
+
 }
 std::vector<unsigned char> Git::read_file_binary_as_unsigned_char(const std::string& file_path) 
 {
@@ -311,10 +320,123 @@ void Git::cat_file(const std::string& sha1_prefix)
     std::string obj_type;
     std::string data;
     std::tie(obj_type, data) = read_object(sha1_prefix); 
-    std::cout << obj_type << data << "\n";
+    std::cout << obj_type << " " <<data << "\n";
     if (obj_type == "blob")
     {
         std::cout << "Object type: " << obj_type << "\n";
         std::cout << "Content:\n" << data << "\n";
     }
+}
+
+void Git::read_index_file() {
+    index_entries.clear();
+    std::ifstream file(get_index_file(), std::ios::binary);
+    char NULLchar = '\0';
+    while (file.peek() != EOF) 
+    { 
+        IndexEntry entry;
+        file.read(reinterpret_cast<char*>(&entry.mtime_s), sizeof(entry.mtime_s));
+        file.read(reinterpret_cast<char*>(&entry.mode), sizeof(entry.mode));
+        file.read(reinterpret_cast<char*>(&entry.size), sizeof(entry.size));
+        file.read(reinterpret_cast<char*>(entry.sha1_binary), 20);
+        std::string path_buffer;
+        char path_char;
+        while (file.get(path_char) && path_char != NULLchar) {
+            path_buffer += path_char;
+        }
+        entry.path = path_buffer;
+        index_entries[entry.path] = entry;
+    }
+    file.close();
+}
+
+void Git::write_index_file() {
+    std::ofstream file(get_index_file(), std::ios::binary | std::ios::trunc);
+    std::vector<IndexEntry> sorted_entries;
+    for (const auto& pair : index_entries) {
+        sorted_entries.push_back(pair.second);
+    }
+    std::sort(sorted_entries.begin(), sorted_entries.end(), [](const IndexEntry& a, const IndexEntry& b) 
+        {
+            return a.path < b.path;
+        }
+    );
+
+    for (const auto& entry : sorted_entries) 
+    {
+        file.write(reinterpret_cast<const char*>(&entry.mtime_s), sizeof(entry.mtime_s));
+        file.write(reinterpret_cast<const char*>(&entry.mode), sizeof(entry.mode));
+        file.write(reinterpret_cast<const char*>(&entry.size), sizeof(entry.size));
+        file.write(reinterpret_cast<const char*>(entry.sha1_binary), 20);
+        file.write(entry.path.c_str(), entry.path.length());
+        file.write("\0", 1);
+    }
+    file.close();
+}
+
+
+void Git::add_single_file(const std::string& relative_path_in_repo)
+{
+    fs::path absolute_file_path = fs::path(repo_path) / relative_path_in_repo;
+    std::string blob_hash_hex = hash_object(absolute_file_path);
+    struct stat file_stat;
+    if (!blob_hash_hex.empty() && stat(absolute_file_path.string().c_str(), &file_stat) == 0)
+    {
+        IndexEntry new_entry;
+        new_entry.path = relative_path_in_repo;
+        new_entry.set_sha1_hex(blob_hash_hex);
+        new_entry.mtime_s = static_cast<uint32_t>(file_stat.st_mtime);
+        new_entry.size = static_cast<uint32_t>(file_stat.st_size);
+        new_entry.mode = 0100644;  // TODO : Determine the correct mode based on the file type
+        index_entries[new_entry.path] = new_entry;
+        std::cout << "Staged: " << new_entry.path << " (hash: " << blob_hash_hex << ")\n";
+    }
+    else {
+		std::cout << " not added to index: " << relative_path_in_repo << "\n";
+    }
+}
+
+void Git::add_all(std::string dir_path)
+{
+    for (const auto& entry : fs::recursive_directory_iterator(dir_path))
+    {
+        if (entry.is_regular_file() && !ignore_from_adding(entry.path().string()))
+        {
+            std::string rel_path = fs::relative(entry.path(), dir_path).string();
+            add_single_file(rel_path);
+        }
+    }
+}
+bool Git::ignore_from_adding(const std::string path)
+{
+
+    if (path.find(".git") != std::string::npos ||
+        path.find("/.git/") != std::string::npos ||
+        path.find("\\.git\\") != std::string::npos ||
+        path.find(".git\\") == 0 ||
+        path.find(".git/")==0) {
+        return true;
+    }
+    return false;
+}
+void Git::add(const std::string& relative_path) {
+    
+    if (relative_path == ".")
+    {
+        add_all(repo_path);
+    }
+    else 
+    {
+        std::string full_path = repo_path + "/" + relative_path;
+		if (fs::is_directory(full_path)) 
+        {
+			add_all(full_path);
+        }
+		else if (!ignore_from_adding(full_path) && fs::is_regular_file(full_path))
+        {
+            add_single_file(relative_path);
+        }
+    }
+
+    write_index_file();
 }

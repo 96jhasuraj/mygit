@@ -35,6 +35,9 @@ void handle_user_input(int argc, char* argv[],Git git)
     else if (command == "cat-file" and argc == 3) {
         git.cat_file(argv[2]);
     }
+    else if (command == "add" and argc == 3) {
+        git.add(argv[2]);
+    }
     else {
         std::cout << "git: '" << command << "' is not a supported command. See 'git --help'.\n";
         return;
