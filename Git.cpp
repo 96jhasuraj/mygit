@@ -8,6 +8,7 @@
 #include <string> 
 #include<zlib.h>
 #include <sys/stat.h>
+#include <set>
 namespace fs = std::filesystem;
 
 Git::Git(const std::string& path)
@@ -204,11 +205,11 @@ std::string get_file_content(const std::filesystem::path& path)
     file.close();
     return file_content;
 }
-std::string Git::hash_object(const std::filesystem::path& path) 
+std::string Git::hash_object(const std::filesystem::path& path,bool save_on_disk=true) 
 {
     if(!hash_checkup(path))
         return "";
-    return hash_object(get_file_content(path), "blob");
+    return hash_object(get_file_content(path), "blob", save_on_disk);
 }
 void Git::compress_write(std::filesystem::path& path, const std::string full_data)
 {
@@ -226,7 +227,7 @@ void Git::compress_write(std::filesystem::path& path, const std::string full_dat
         }
     }
 }
-std::string Git::hash_object(const std::string& data, const std::string& obj_type) 
+std::string Git::hash_object(const std::string& data, const std::string& obj_type, bool save_on_disk=true)
 {
     std::stringstream header_ss;
     header_ss << obj_type << " " << data.length() << '\0';
@@ -235,7 +236,8 @@ std::string Git::hash_object(const std::string& data, const std::string& obj_typ
     std::filesystem::path object_path = get_object_dir();
     object_path /= sha1.substr(0, 2); // First two chars for subdirectory
     object_path /= sha1.substr(2);   // Remaining chars for filename
-    compress_write(object_path,full_data);
+    if (save_on_disk)
+        compress_write(object_path,full_data);
     return sha1;
 }
 
@@ -414,10 +416,98 @@ bool Git::ignore_from_adding(const std::string path)
         path.find("/.git/") != std::string::npos ||
         path.find("\\.git\\") != std::string::npos ||
         path.find(".git\\") == 0 ||
-        path.find(".git/")==0) {
+        path.find(".git/")==0 || path=="") {
         return true;
     }
     return false;
+}
+
+void Git::ls_files()
+{
+	std::cout << "Listing files in the index:\n";
+    read_index_file();
+    for(auto & entry : index_entries) 
+    {
+        std::cout << entry.first << " " << entry.second.get_sha1_hex() << "\n";
+	}
+
+}
+std::set<std::string> Git::populate_working_dir()
+{
+    std::set<std::string> working_dir_paths;
+    for (const auto& entry : fs::recursive_directory_iterator(repo_path))
+    {
+        fs::path relative_path_fs = fs::relative(entry.path(), repo_path);
+        std::string path_str = relative_path_fs.string();
+
+        if (ignore_from_adding(path_str))
+        {
+            continue;
+        }
+
+        if (fs::is_regular_file(entry.status()))
+        {
+            working_dir_paths.insert(path_str);
+        }
+    }
+	return working_dir_paths;
+}
+std::set<std::string> Git::populate_staging_dir()
+{
+    std::set<std::string> staged_paths;
+    for (const auto& pair : index_entries)
+    {
+        staged_paths.insert(pair.first);
+    }
+    return staged_paths;
+}
+void Git::status() 
+{
+    std::vector<std::string> changed_paths;
+    std::vector<std::string> new_paths;
+    std::vector<std::string> deleted_paths;
+    
+    read_index_file();
+
+    
+    std::set<std::string> staged_paths = populate_staging_dir();
+
+    std::set<std::string> working_dir_paths=populate_working_dir();
+    std::set_difference(staged_paths.begin(), staged_paths.end(),working_dir_paths.begin(), working_dir_paths.end(),std::back_inserter(deleted_paths));
+    std::set_difference(working_dir_paths.begin(), working_dir_paths.end(),staged_paths.begin(), staged_paths.end(),std::back_inserter(new_paths));
+    for (const std::string& path : staged_paths) 
+    { 
+        if (working_dir_paths.count(path)) 
+        { 
+            std::string absolute_file_path = (fs::path(repo_path) / path).string();
+            std::string current_working_hash;
+            current_working_hash = hash_object(get_file_content(absolute_file_path), "blob",false);
+            if (index_entries.at(path).get_sha1_hex() != current_working_hash) 
+            {
+                changed_paths.push_back(path);
+            }
+        }
+    }
+
+    std::cout << "\nDeleted files :\n";
+    for (const auto& file : deleted_paths)
+    {
+        std::cout << "\t" << file << "\n";
+    }
+
+    std::cout << "\nChanges not staged for commit:\n";
+    for (const auto& file : changed_paths) 
+    {
+        std::cout << "\t" << file << "\n";
+    }
+
+
+    std::cout << "\nUntracked files:\n";
+    for (const auto& file : new_paths) 
+    {
+        std::cout << "\t" << file << "\n";
+    }
+
 }
 void Git::add(const std::string& relative_path) {
     
