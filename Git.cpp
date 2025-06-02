@@ -411,7 +411,6 @@ void Git::add_all(std::string dir_path)
 }
 bool Git::ignore_from_adding(const std::string path)
 {
-
     if (path.find(".git") != std::string::npos ||
         path.find("/.git/") != std::string::npos ||
         path.find("\\.git\\") != std::string::npos ||
@@ -432,7 +431,7 @@ void Git::ls_files()
 	}
 
 }
-std::set<std::string> Git::populate_working_dir()
+std::set<std::string> Git::get_working_dir()
 {
     std::set<std::string> working_dir_paths;
     for (const auto& entry : fs::recursive_directory_iterator(repo_path))
@@ -452,7 +451,7 @@ std::set<std::string> Git::populate_working_dir()
     }
 	return working_dir_paths;
 }
-std::set<std::string> Git::populate_staging_dir()
+std::set<std::string> Git::get_staging_dir()
 {
     std::set<std::string> staged_paths;
     for (const auto& pair : index_entries)
@@ -461,33 +460,42 @@ std::set<std::string> Git::populate_staging_dir()
     }
     return staged_paths;
 }
-void Git::status() 
+
+std::vector<std::string> Git::get_modified_files(std::set<std::string>& staged_paths, std::set<std::string>& working_dir_paths)
 {
     std::vector<std::string> changed_paths;
+    for (const std::string& path : staged_paths)
+    {
+        if (working_dir_paths.count(path))
+        {
+            std::string absolute_file_path = (fs::path(repo_path) / path).string();
+            std::string current_working_hash;
+            current_working_hash = hash_object(get_file_content(absolute_file_path), "blob", false);
+            if (index_entries.at(path).get_sha1_hex() != current_working_hash)
+            {
+                changed_paths.push_back(path);
+            }
+        }
+    }
+    return changed_paths;
+}
+void Git::status() 
+{
+
     std::vector<std::string> new_paths;
     std::vector<std::string> deleted_paths;
     
     read_index_file();
 
     
-    std::set<std::string> staged_paths = populate_staging_dir();
+    std::set<std::string> staged_paths = get_staging_dir();
+    std::set<std::string> working_dir_paths=get_working_dir();
 
-    std::set<std::string> working_dir_paths=populate_working_dir();
+    std::vector<std::string> changed_paths = get_modified_files(staged_paths, working_dir_paths);
+
     std::set_difference(staged_paths.begin(), staged_paths.end(),working_dir_paths.begin(), working_dir_paths.end(),std::back_inserter(deleted_paths));
     std::set_difference(working_dir_paths.begin(), working_dir_paths.end(),staged_paths.begin(), staged_paths.end(),std::back_inserter(new_paths));
-    for (const std::string& path : staged_paths) 
-    { 
-        if (working_dir_paths.count(path)) 
-        { 
-            std::string absolute_file_path = (fs::path(repo_path) / path).string();
-            std::string current_working_hash;
-            current_working_hash = hash_object(get_file_content(absolute_file_path), "blob",false);
-            if (index_entries.at(path).get_sha1_hex() != current_working_hash) 
-            {
-                changed_paths.push_back(path);
-            }
-        }
-    }
+    
 
     std::cout << "\nDeleted files :\n";
     for (const auto& file : deleted_paths)
@@ -508,6 +516,93 @@ void Git::status()
         std::cout << "\t" << file << "\n";
     }
 
+}
+
+void Git::diff()
+{
+    read_index_file();
+
+    std::set<std::string> staged_paths = get_staging_dir();
+    std::set<std::string> working_dir_paths = get_working_dir();
+    std::vector<std::string> changed_paths = get_modified_files(staged_paths, working_dir_paths);
+    for ( auto& path : changed_paths)
+    {
+        std::string absolute_file_path = (fs::path(repo_path) / path).string();
+        std::string file_ondisk = get_file_content(absolute_file_path);
+        std::string sha_file_index = index_entries.at(path).get_sha1_hex();
+        std::string ignore;
+        std::string file_on_index;
+        std::tie(ignore, file_on_index) = read_object(sha_file_index);
+		std::cout << "Comparing file: " << path << "\n";
+		compare(file_ondisk, file_on_index);
+    }
+}
+
+void Git::compare(const std::string& file_ondisk, const std::string& file_on_index)
+{
+    if (file_ondisk == file_on_index)
+    {
+        std::cout << "No changes detected.\n";
+    }
+    else
+    {
+		print_diff(file_on_index, file_ondisk);
+    }
+}
+std::vector<std::string> Git::split_string_by_newline(const std::string& s) 
+{
+    std::vector<std::string> lines;
+    std::string line;
+    std::istringstream iss(s);
+    while (std::getline(iss, line)) 
+    {
+        if (!line.empty() && line.back() == '\r') 
+        {
+			line.pop_back(); // encountered issue with Windows line endings in diff implementation
+        }
+        lines.push_back(line);
+    }
+    return lines;
+}
+
+void Git::print_diff(const std::string& old_content, const std::string& new_content){
+    std::vector<std::string> old_lines = split_string_by_newline(old_content);
+    std::vector<std::string> new_lines = split_string_by_newline(new_content);
+
+    std::cout << "--- a/" << "old_content" << "\n";
+    std::cout << "+++ b/" << "new_content" << "\n";
+
+    int iold = 0; 
+    int inew = 0;
+
+    while (iold < old_lines.size() || inew < new_lines.size()) 
+    {
+        if (iold < old_lines.size() && inew < new_lines.size()) 
+        {
+            if (old_lines[iold] == new_lines[inew])
+            {
+                std::cout << " " << old_lines[iold] << "\n";
+            }
+            else 
+            {
+                std::cout << "-" << old_lines[iold] << "\n";
+                std::cout << "+" << new_lines[inew] << "\n";
+            }
+            iold++;
+            inew++;
+        }
+        else if (iold < old_lines.size()) 
+        {
+            std::cout << "-" << old_lines[iold] << "\n";
+            iold++;
+        }
+        else 
+        { 
+            std::cout << "+" << new_lines[inew] << "\n";
+            inew++;
+        }
+    }
+    std::cout << "\n"; // Add a newline for separation
 }
 void Git::add(const std::string& relative_path) {
     

@@ -64,8 +64,12 @@ private:
     void add_all(std::string dir_path);
     void write_index_file();
     bool ignore_from_adding(const std::string path);
-    std::set<std::string> populate_staging_dir();
-    std::set<std::string> populate_working_dir();
+    std::set<std::string> get_staging_dir();
+    std::set<std::string> get_working_dir();
+    std::vector<std::string> get_modified_files(std::set<std::string>& , std::set<std::string>&);
+    void compare(const std::string& file_ondisk, const std::string& file_on_index);
+    void print_diff(const std::string& old_content, const std::string& new_content);
+    std::vector<std::string> split_string_by_newline(const std::string& s);
 public:
     Git(const std::string& path = ".");
     void init();
@@ -77,5 +81,6 @@ public:
     void add(const std::string& path);
     void status();
     void ls_files();
+    void diff();
 
 };

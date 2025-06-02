@@ -37,16 +37,19 @@ A WIP implementation of a simplified Git client in C++.
    *After changes* (removed `features.txt`, added `f3.txt`, modified `f1.txt`):  
    ![Status after changes](img/image-11.png)
 
+7. **git diff**
+   *changes* (edited `f1.txt`):    
+![alt text](img/image-13.png)
+
 ## Planned Features
 
 1. cat on tags , commits , trees
 2. commit
-3. diff
-4. push stuff to github
-5. refactor code
-6. add error handling
+3. push stuff to github
+4. refactor code
+5. add error handling
     - read whats the proper way to do error handling not just random try catch blocks
-7. singleton class
+6. singleton class
     - other patterns learn & see how to refactor accordingly
 
 

@@ -54,6 +54,9 @@ void handle_user_input(int argc, char* argv[],Git git)
     else if (command == "status") {
         git.status();
     }
+    else if (command == "diff") {
+        git.diff();
+    }
     else {
         std::cout << "git: '" << command << "' is not a supported command. See 'git --help'.\n";
         return;
