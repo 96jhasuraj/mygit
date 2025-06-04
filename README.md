@@ -43,16 +43,14 @@ A WIP implementation of a simplified Git client in C++.
 
 8. **git write-tree**
    Writes tree 
-   ![alt text](image-14.png)
+   ![alt text](img/image-14.png)
 ## Planned Features
 
-1. cat on tags , commits , trees
-2. commit
-3. push stuff to github
-4. refactor code
-5. add error handling
-    - read whats the proper way to do error handling not just random try catch blocks
-6. singleton class
+1. commit  - currently doing
+2. push stuff to github
+3. refactor code
+4. add error handling - ignored all / any edge cases for now 
+5. singleton class
     - other patterns learn & see how to refactor accordingly
 
 
