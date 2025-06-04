@@ -82,5 +82,5 @@ public:
     void status();
     void ls_files();
     void diff();
-
+    std::string write_tree();
 };

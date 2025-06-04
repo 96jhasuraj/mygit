@@ -41,6 +41,9 @@ A WIP implementation of a simplified Git client in C++.
    *changes* (edited `f1.txt`):    
 ![alt text](img/image-13.png)
 
+8. **git write-tree**
+   Writes tree 
+   ![alt text](image-14.png)
 ## Planned Features
 
 1. cat on tags , commits , trees

@@ -57,6 +57,10 @@ void handle_user_input(int argc, char* argv[],Git git)
     else if (command == "diff") {
         git.diff();
     }
+    else if (command == "write-tree") {
+		std::cout << "Writing tree...\n";
+        git.write_tree();
+    }
     else {
         std::cout << "git: '" << command << "' is not a supported command. See 'git --help'.\n";
         return;

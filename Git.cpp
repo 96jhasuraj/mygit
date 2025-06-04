@@ -10,7 +10,7 @@
 #include <sys/stat.h>
 #include <set>
 namespace fs = std::filesystem;
-
+char NULLCHAR = '\0';
 Git::Git(const std::string& path)
     : repo_path(fs::absolute(path).string()),
     git_dir(repo_path + "/.git"),
@@ -211,6 +211,7 @@ std::string Git::hash_object(const std::filesystem::path& path,bool save_on_disk
         return "";
     return hash_object(get_file_content(path), "blob", save_on_disk);
 }
+
 void Git::compress_write(std::filesystem::path& path, const std::string full_data)
 {
     if (!std::filesystem::exists(path))
@@ -227,7 +228,7 @@ void Git::compress_write(std::filesystem::path& path, const std::string full_dat
         }
     }
 }
-std::string Git::hash_object(const std::string& data, const std::string& obj_type, bool save_on_disk=true)
+std::string Git::hash_object(const std::string& data, const std::string& obj_type, bool save_on_disk)
 {
     std::stringstream header_ss;
     header_ss << obj_type << " " << data.length() << '\0';
@@ -322,11 +323,36 @@ void Git::cat_file(const std::string& sha1_prefix)
     std::string obj_type;
     std::string data;
     std::tie(obj_type, data) = read_object(sha1_prefix); 
-    std::cout << obj_type << " " <<data << "\n";
+    //std::cout << obj_type << " " <<data << "\n";
     if (obj_type == "blob")
     {
         std::cout << "Object type: " << obj_type << "\n";
         std::cout << "Content:\n" << data << "\n";
+    }
+    else if (obj_type == "tree") 
+    {
+        std::cout << "Tree contents:\n";
+        size_t offset = 0;
+        while (offset < data.length()) 
+        {
+            size_t space_pos = data.find(' ', offset);
+            std::string mode_str = data.substr(offset, space_pos - offset);
+            offset = space_pos + 1;
+
+            size_t null_pos = data.find('\0', offset);
+            std::string path = data.substr(offset, null_pos - offset);
+            offset = null_pos + 1;
+            unsigned char sha1_binary[20];
+            data.copy(reinterpret_cast<char*>(sha1_binary), 20, offset);
+            offset += 20;
+
+            std::stringstream ss;
+            for (int i = 0; i < 20; ++i) {
+                ss << std::hex << std::setw(2) << std::setfill('0') << (static_cast<int>(sha1_binary[i]) & 0xFF);
+            }
+            std::string sha1_hex = ss.str();
+            std::cout << mode_str << " " << sha1_hex << "\t" << path << "\n";
+        }
     }
 }
 
@@ -354,6 +380,7 @@ void Git::read_index_file() {
 
 void Git::write_index_file() {
     std::ofstream file(get_index_file(), std::ios::binary | std::ios::trunc);
+
     std::vector<IndexEntry> sorted_entries;
     for (const auto& pair : index_entries) {
         sorted_entries.push_back(pair.second);
@@ -374,11 +401,13 @@ void Git::write_index_file() {
         file.write("\0", 1);
     }
     file.close();
+
 }
 
 
 void Git::add_single_file(const std::string& relative_path_in_repo)
 {
+	read_index_file();
     fs::path absolute_file_path = fs::path(repo_path) / relative_path_in_repo;
     std::string blob_hash_hex = hash_object(absolute_file_path);
     struct stat file_stat;
@@ -395,6 +424,10 @@ void Git::add_single_file(const std::string& relative_path_in_repo)
     }
     else {
 		std::cout << " not added to index: " << relative_path_in_repo << "\n";
+    }
+    for (auto& entry : index_entries)
+    {
+        std::cout << entry.first << " " << entry.second.get_sha1_hex() << "\n";
     }
 }
 
@@ -619,9 +652,41 @@ void Git::add(const std::string& relative_path) {
         }
 		else if (!ignore_from_adding(full_path) && fs::is_regular_file(full_path))
         {
+			std::cout << "Adding file: " << relative_path << "\n";
             add_single_file(relative_path);
         }
     }
 
     write_index_file();
+}
+
+std::string Git::write_tree() {// Format: 'mode path\0SHA1_binary'
+    read_index_file();
+
+    std::vector<IndexEntry> sorted_entries;
+    for (const auto& pair : index_entries) {
+        sorted_entries.push_back(pair.second);
+    }
+
+    std::sort(sorted_entries.begin(), sorted_entries.end(),[](const IndexEntry& a, const IndexEntry& b) 
+    {
+            return a.path < b.path;
+    });
+
+    std::string tree_content;
+
+    for (const auto& entry : sorted_entries) {
+        std::stringstream mode_ss;
+        mode_ss << std::setw(6) << std::setfill('0') << entry.mode; 
+        std::string mode_str = mode_ss.str();
+        tree_content.append(mode_str);
+        tree_content.append(" "); 
+        tree_content.append(entry.path);
+        tree_content.append(1, NULLCHAR); 
+        tree_content.append(reinterpret_cast<const char*>(entry.sha1_binary), 20);
+    }
+
+    std::string tree_sha1 = hash_object(tree_content, "tree",true);
+    std::cout << "Tree object written: " << tree_sha1 << "\n";
+    return tree_sha1;
 }
