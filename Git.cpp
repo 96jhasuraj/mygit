@@ -354,6 +354,55 @@ void Git::cat_file(const std::string& sha1_prefix)
             std::cout << mode_str << " " << sha1_hex << "\t" << path << "\n";
         }
     }
+    else if (obj_type == "commit") 
+    {
+        std::cout << "Commit details:\n";
+
+        std::istringstream iss(data);
+        std::string line;
+        std::string tree_hash;
+        std::vector<std::string> parent_hashes;
+        std::string author_line;
+        std::string committer_line;
+
+        while (std::getline(iss, line) && !line.empty()) 
+        {
+            if (line.rfind("tree ", 0) == 0) 
+            { 
+                tree_hash = line.substr(5);
+            }
+            else if (line.rfind("parent ", 0) == 0) 
+            {
+                parent_hashes.push_back(line.substr(7));
+            }
+            else if (line.rfind("author ", 0) == 0) {
+                author_line = line.substr(7);
+            }
+            else if (line.rfind("committer ", 0) == 0) 
+            {
+                committer_line = line.substr(10);
+            }
+        }
+
+        std::cout << "tree " << tree_hash << "\n";
+        for (const auto& parent : parent_hashes) {
+            std::cout << "parent " << parent << "\n";
+        }
+        std::cout << "author " << author_line << "\n";
+        std::cout << "committer " << committer_line << "\n";
+
+        std::cout << "\n"; 
+        std::string commit_message_raw;
+        std::string msg_line;
+        while (std::getline(iss, msg_line)) {
+            commit_message_raw += msg_line + "\n";
+        }
+        if (!commit_message_raw.empty() && commit_message_raw.back() == '\n') {
+            commit_message_raw.pop_back();
+        }
+        std::cout << commit_message_raw << "\n"; 
+
+    }
 }
 
 void Git::read_index_file() {
@@ -689,4 +738,33 @@ std::string Git::write_tree() {// Format: 'mode path\0SHA1_binary'
     std::string tree_sha1 = hash_object(tree_content, "tree",true);
     std::cout << "Tree object written: " << tree_sha1 << "\n";
     return tree_sha1;
+}
+
+
+void Git::commit(const std::string& message, const std::string& author_name, const std::string& author_email) {
+
+    std::string tree_hash =  write_tree(); 
+	std::string current_branch = "main"; // TODO : Get current branch from HEAD
+    std::string branch_ref_path = refs_dir+"/heads/" + current_branch;
+    std::string parent_hash = get_file_content(branch_ref_path);
+    std::vector<std::string> commit_lines;
+    commit_lines.push_back("tree " + tree_hash);
+    commit_lines.push_back("parent " + parent_hash);
+    commit_lines.push_back("author " + author_name + " <" + author_email + "> ");
+    commit_lines.push_back("committer " + author_name + " <" + author_email + "> ");
+    commit_lines.push_back(message);
+
+    std::string commit_content = "";
+    for (const auto& line : commit_lines) {
+        commit_content += line + "\n";
+    }
+    std::string commit_hash = hash_object(commit_content, "commit",true);
+    std::ofstream ofs(branch_ref_path);
+    ofs << commit_hash << "\n";
+    ofs.close();
+    std::cout << "Committed to " << current_branch << ": " << commit_hash << "\n";
+}
+void Git::commit(const std::string& message)
+{
+	commit(message, "Suraj", "suraj.jha96@gmail.com");//TODO : Get author name and email from config file
 }

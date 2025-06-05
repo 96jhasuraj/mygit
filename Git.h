@@ -70,6 +70,7 @@ private:
     void compare(const std::string& file_ondisk, const std::string& file_on_index);
     void print_diff(const std::string& old_content, const std::string& new_content);
     std::vector<std::string> split_string_by_newline(const std::string& s);
+    void commit(const std::string& message, const std::string& author_name, const std::string& author_email);
 public:
     Git(const std::string& path = ".");
     void init();
@@ -83,4 +84,5 @@ public:
     void ls_files();
     void diff();
     std::string write_tree();
+    void commit(const std::string& message);
 };
