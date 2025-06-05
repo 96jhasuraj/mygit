@@ -44,15 +44,21 @@ A WIP implementation of a simplified Git client in C++.
 8. **git write-tree**
    Writes tree 
    ![alt text](img/image-14.png)
-## Planned Features
 
-1. commit  - currently doing
-2. push stuff to github
-3. refactor code
-4. add error handling - ignored all / any edge cases for now 
-5. singleton class
-    - other patterns learn & see how to refactor accordingly
+9. **git commit**
+   ![alt text](img/image-15.png)
 
+## Planned in Future
+
+1. refactor code
+2. add error handling - ignored all / any edge cases for now 
+3. singleton class
+    - learn other design patterns & refactor accordingly
+
+## learnings
+1. Would have been better to add test / edge cases handling from the start , now I have forgotten what assumptions i took . Never doing this again 
+2. Learnt c++ while implementing this , fun :) , now i think i will pick up a book 
+3. Deeper understanding of how GIT works under the hood. I simplified some optimisations for storing index . Did not add multi branch feature for now.
 
 ### Prerequisites
 - C++17
